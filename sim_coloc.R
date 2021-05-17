@@ -2,12 +2,16 @@
 source("dirs.rb")
 library(randomFunctions)
 library(magrittr)
-afile=list.files(SIMDATA,full=TRUE) %>% sample(.,1)
-print(afile)
-args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=20,ncopies=2),
-             numeric=c("Ashared","Bshared","nsim","ncopies"))
-(load(args$file)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
 
+ok=FALSE
+while(!ok) {
+  afile=list.files(SIMDATA,full=TRUE) %>% sample(.,1)
+  print(afile)
+  args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=20,ncopies=2),
+               numeric=c("Ashared","Bshared","nsim","ncopies"))
+  (load(args$file)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
+  ok=length(dB$beta) && length(dAB$beta) && length(dA$beta)
+}
 devtools::load_all("~/RP/coloc")
 
 
@@ -67,15 +71,16 @@ run_single=function(D1,D2,i) {
 }
 
 run_susie=function(D1,D2,zthr,i) {
-  ret <- coloc:::coloc.susie(D1, D2, p12=5e-6,susie.args=list(trimz=zthr))
-  ret %>% cbind(., data.table(method=paste("susie",zthr,sep="_"),
+  ret <- coloc:::coloc.susie(D1, D2, p12=5e-6,susie.args=list(trimz=zthr),nref=503)
+  cbind(ret$summary, data.table(method=paste("susie",zthr,sep="_"),
                               run=i))
 }
 
-run_condmask=function(D1,D2,i,method=c("mask","cond")) {
+run_condmask=function(D1,D2,i,method=c("mask","cond"),mode=c("iterative","allbutone")) {
   method=match.arg(method)
-  ret <- coloc:::coloc.signals(D1, D2, p12=5e-6,method=method)$summary
-  ret %>% cbind(., data.table(method=method,
+  mode=match.arg(mode)
+  ret <- coloc:::coloc.signals(D1, D2, p12=5e-6,method=method,mode=mode)$summary
+  ret %>% cbind(., data.table(method=paste(method,mode,sep="_"),
                               run=i))
 }
 
@@ -103,7 +108,9 @@ run_sim=function(i) {
               run_susie(D1,D2,zthr=1,i),
               run_susie(D1,D2,zthr=1.5,i),
               run_condmask(D1,D2,i,"mask"),
-              run_condmask(D1,D2,i,"cond"))
+              run_condmask(D1,D2,i,"cond"),
+              run_condmask(D1,D2,i,"mask",mode="allbutone"),
+              run_condmask(D1,D2,i,"cond",mode="allbutone"))
 
   result=rbindlist(RESULT,fill=TRUE)
   result[,hit1.margz:=D1$z[ as.character(hit1) ]]

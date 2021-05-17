@@ -59,9 +59,101 @@ results[ncv==2,base_pip.cv2:=sub(".*/","",base_cv.pip) %>% as.numeric()]
 results[,z.cv1:=sub("/.*","",cv.z) %>% as.numeric()]
 results[nsnp==1,z.cv2:=sub(".*/","",cv.z) %>% as.numeric()]
 results[,.(n=.N,prop.same=mean(same_top)),by=c("ncv","nsnp","zthr")]
-
 results[nsnp < 1000, nsnp:=1000 * nsnp]
+results[,ncvscen:=ifelse(ncv==1, "single CV", "two CV")]
+results[,snpscen:=paste(nsnp," SNPs")]
 
+ggplot(results,aes(x=base_tot+tot_diff)) + geom_histogram() + facet_wrap(~zthr)
+
+ggplot(results,aes(x=base_tot,y=tot_diff)) + geom_hex() + geom_smooth() +
+  facet_wrap(~zthr)
+
+## bivariate plot
+library(cowplot)
+library(ggExtra)
+library(viridis)
+p=ggplot(results[zthr>0], aes(x=pcv_diff,y=pnocv_diff)) + #,col=pnocv_diff)) +
+  ## geom_hex(binwidth=c(0.01/21,2/11),colour="grey") +
+  ## geom_bin2d(binwidth=c(0.018/17,4/19),colour="grey") +
+  ## geom_hline(yintercept=0) + geom_vline(xintercept=0,width=0.1) +
+  geom_jitter(alpha=0.01) +
+  ## geom_point(colour="transparent") +
+  ## geom_density2d(alpha=0.2) +
+  background_grid() +
+  geom_rug(aes(x=pcv_diff,y=pcv_diff),alpha=0.01,data=results) +
+  scale_colour_viridis() +
+  scale_fill_viridis() +
+  facet_grid(ncvscen + zthr ~ snpscen)
+p
+
+## https://www.r-bloggers.com/2014/05/finding-the-midpoint-when-creating-intervals/
+midpoints <- function(x){
+lower <- as.numeric(gsub(",.*","",gsub("\\(|\\[|\\)|\\]","", x)))
+upper <- as.numeric(gsub(".*,","",gsub("\\(|\\[|\\)|\\]","", x)))
+lower+(upper-lower)/2
+}
+
+min(results$pnocv_diff)
+max(results$pnocv_diff)
+min(results$pcv_diff)
+max(results$pcv_diff)
+## results[,xbin:=cut(pnocv_diff,breaks=seq(-0.009,0.009,length.out=40),include.lowest=TRUE)]
+results[,xbin:=cut(pnocv_diff,breaks=seq(-20,20,length.out=80),include.lowest=TRUE)]
+results[,ybin:=cut(pcv_diff,breaks=seq(-2,2,length.out=20),include.lowest=TRUE)]
+m=results[zthr > 0,.(n=.N),by=c("xbin","ybin","ncvscen","zthr","snpscen")]
+m[,pc:=100*n/sum(n),by=c("ncvscen","zthr","snpscen")]
+m[,x:=midpoints(xbin)]
+m[,y:=midpoints(ybin)]
+msub=m[ncvscen=="two CV" & snpscen=="1000  SNPs"]
+ggplot(msub[zthr>0]) + #,col=pnocv_diff)) +
+  ## geom_hex(binwidth=c(0.01/21,2/11),colour="grey") +
+  geom_tile(aes(x=x,y=y,fill=pc),colour="grey") +
+  geom_text(aes(x=x,y=y,label=round(pc),colour=100-pc),data=msub[zthr>0]) +
+  ## geom_hline(yintercept=0) + geom_vline(xintercept=0,width=0.1) +
+  ## geom_jitter(alpha=0.01) +
+  ## geom_point(colour="transparent") +
+  ## geom_density2d(alpha=0.2) +
+  background_grid() +
+  ## geom_rug(aes(x=pnull_diff,y=pcv_diff),alpha=0.02,data=results[zthr>0]) +
+  scale_fill_viridis("percent") +
+  scale_colour_viridis("percent",guide=FALSE) +
+  facet_grid(ncvscen + zthr ~ snpscen) +
+  theme(legend.position="bottom")
+
+for(isnp in c(1000,2000,3000)) {
+plots=lapply(c("single CV","two CV"), function(incv) {
+  lapply(c(0.5,1,1.5), function(izthr) {
+    msub=m[ncvscen==incv & snpscen==paste0(isnp,"  SNPs")]
+    show_legend = izthr==0.5
+    show_xlab = izthr==1.5
+    show_ylab = incv=="single CV"
+    p=ggplot(msub[zthr==izthr]) + #,col=pnocv_diff)) +
+      geom_tile(aes(x=x,y=y,fill=pc),colour="grey") +
+      geom_text(aes(x=x,y=y,label=round(pc,1),colour=100-pc)) +
+      geom_point(aes(x=pnocv_diff,y=pcv_diff),colour="transparent",
+                 data=results[ncvscen=="two CV" & snpscen=="1000  SNPs" & zthr==izthr]) +
+      scale_fill_viridis("percent") +
+      scale_colour_viridis("percent",guide=FALSE) +
+      labs(x=if(show_xlab) { "Change in total PP at non-causal variants" } else { "" },
+           y=if(show_ylab) { "Change in total PP at causal variants" } else { "" }) +
+      ggtitle(paste0(incv,", |Z| threshold = ",izthr)) +
+      theme_cowplot(font_size=10) +
+      background_grid() +
+      theme(legend.position="none",#if(show_legend) {c(1,1)} else { "none" },
+            legend.justification=c("left","bottom"),
+            legend.direction="horizontal",
+            plot.title=element_text(face="bold"))
+    ggMarginal(p,size=10)
+  })
+}) %>% do.call("c",.)
+pgrid=plot_grid(plotlist=plots,ncol=2,align="hv",axis="xy",byrow=FALSE)
+## save_plot(paste0("pipgrid-",isnp,".png"),plot=pgrid,base_height=10,base_width=8)
+ggsave(paste0("figure-pipgrid-",isnp,".png"),plot=pgrid,height=10,width=8,units="in")
+}
+
+
+
+## univariate plots
 m=melt(results,c("nsnp","ncv","zthr"),list(c("pip.cv1","pip.cv2"),c("z.cv1","z.cv2"),c("base_pip.cv1","base_pip.cv2")))
 setnames(m,c("variable","value1","value2","value3"),c("cv","pip","z","base_pip"))
 with(m,table(ncv,cv))
@@ -79,6 +171,7 @@ results[,snpscen:=paste(nsnp," SNPs")]
 ##   geom_smooth() +
 ##   facet_grid(nsnp ~ ncv + cv, labeller=label_both)
 
+results[,ptot_diff:=pnocv_diff+pcv_diff+pnull_diff]
 
 ## ggplot(results,aes(x=base_pnull,y=base_pnull+pnull_diff,col=factor(zthr))) +
 ##   geom_point() +
@@ -96,10 +189,30 @@ plots=list(
   geom_vline(xintercept=0,linetype="dashed") +
   ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
    labs(x="Time to run SuSiE")
-,max_abs_diff=ggplot(results, aes(y=factor(zthr),x=max_abs_diff,fill=factor(zthr),col=factor(zthr))) +
+,max_pos_diff=ggplot(results, aes(y=factor(zthr),x=max_pos_diff.noncv,fill=factor(zthr),col=factor(zthr))) +
   geom_vline(xintercept=0,linetype="dashed") +
   ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
-   labs(x="Maximum absolute pip difference")
+   labs(x="Max PIP difference excluding CV")
+,min_neg_diff=ggplot(results, aes(y=factor(zthr),x=min_neg_diff.noncv,fill=factor(zthr),col=factor(zthr))) +
+  geom_vline(xintercept=0,linetype="dashed") +
+  ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
+   labs(x="Min PIP difference excluding CV")
+,totdiff=ggplot(results, aes(y=factor(zthr),x=ptot_diff,fill=factor(zthr),col=factor(zthr))) +
+  geom_vline(xintercept=0,linetype="dashed") +
+  ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
+   labs(x="Bias in PIP excluding CV")
+,nocvdiff=ggplot(results, aes(y=factor(zthr),x=pnocv_diff,fill=factor(zthr),col=factor(zthr))) +
+  geom_vline(xintercept=0,linetype="dashed") +
+  ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
+   labs(x="Bias in PIP excluding CV")
+,cvdiff=ggplot(results, aes(y=factor(zthr),x=pcv_diff,fill=factor(zthr),col=factor(zthr))) +
+  geom_vline(xintercept=0,linetype="dashed") +
+  ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
+   labs(x="Bias in PIP excluding CV")
+,nulldiff=ggplot(results, aes(y=factor(zthr),x=pnull_diff,fill=factor(zthr),col=factor(zthr))) +
+  geom_vline(xintercept=0,linetype="dashed") +
+  ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
+   labs(x="Bias in PIP excluding CV")
  ,pipcr=ggplot(results, aes(y=factor(zthr),x=pipcr,fill=factor(zthr),col=factor(zthr))) +
   geom_vline(xintercept=1,linetype="dashed") +
   ## geom_density_ridges(stat = "density", aes(height = stat(density)), col="grey") +
@@ -110,7 +223,7 @@ plots=list(
 
 
 plotsplus = lapply(plots,function(p)
-  p + geom_density_ridges(stat = "binline", scale=0.95,bins=20, draw_baseline = FALSE) +
+  p + geom_density_ridges(stat = "binline", scale=0.95,bins=21, draw_baseline = FALSE) +
   scale_fill_seaborn("|Z| threshold for trimming") +
   scale_colour_seaborn("|Z| threshold for trimming") +
   background_grid(major="y") +
@@ -118,20 +231,59 @@ plotsplus = lapply(plots,function(p)
   theme(legend.position="bottom") +
   facet_grid(ncvscen ~ snpscen,space="free"))
 
-plotsplus$pip = plotsplus$pip +
+msum=m[,.(mid=paste0(100*round(mean(abs(pip_diff)<0.1),2),"%")),
+          by=c("cvscen","snpscen","zthr")]
+plotsplus$pip =
+  plotsplus$pip +
+  geom_text(aes(label=mid,y=zthr*2+1.5),x=0.5,data=msum) +
   facet_grid(cvscen ~ snpscen, space="free") +
   scale_x_continuous(breaks=c(-1,0,1))
 
 ## stand alone
 ## plotsplus$time
 plotsplus$pip
+
 ggsave("~/Projects/coloc-susie/figure-pipdiff.png",plot=plotsplus$pip,height=6,width=6)
 
 ## other diagnostics
-plotlist=plotsplus[c("pnull","max_abs_diff","pipcr")]
-plotlist[1:2] %<>% lapply(., function(p) p + theme(legend.position="none"))
-plot_grid(plotlist=plotlist[c(1,3)],ncol=1)
+plotlist=plotsplus[c("pnull","pipcr")]
+plotlist[1] %<>% lapply(., function(p) p + theme(legend.position="none"))
+plot_grid(plotlist=plotlist[],ncol=1)
+
 ggsave("~/Projects/coloc-susie/figure-otherdiagnostics.png",height=8,width=6)
+
+plotlist=plotsplus[c("max_pos_diff","min_neg_diff","bias")]
+plotlist=plotsplus[c("totdiff","cvdiff","nocvdiff","nulldiff")]
+plot_grid(plotlist=plotlist[],ncol=1)
+
+library(MASS)
+library(ggplot2)
+library(viridis)
+## theme_set(theme_bw(base_size = 16))
+
+# Get density of points in 2 dimensions.
+# @param x A numeric vector.
+# @param y A numeric vector.
+# @param n Create a square n by n grid to compute density.
+# @return The density within each square.
+get_density <- function(x, y, ...) {
+  dens <- MASS::kde2d(x, y, ...)
+  ix <- findInterval(x, dens$x)
+  iy <- findInterval(y, dens$y)
+  ii <- cbind(ix, iy)
+  return(dens$z[ii])
+}
+
+results[zthr>0,dens:=get_density(x=pnull_diff, y=pcv_diff, n=100), by=c("ncvscen","zthr","snpscen")]
+## results[zthr>0,dens:=dens/max(dens), by=c("ncvscen","zthr","snpscen")]
+ggplot(results[zthr>0][order(dens)], aes(x=pnull_diff,y=pcv_diff,col=dens)) +
+  ## geom_hex() +
+  ## geom_hline(yintercept=0) + geom_vline(xintercept=0,width=0.1) +
+  geom_point(alpha=1,size=5) +
+  ## geom_density2d(alpha=0.2) +
+  background_grid() +
+  scale_colour_viridis() +
+  facet_grid(ncvscen + zthr ~ snpscen, space="free")
 
 ## alternative time
 ## ggplot(results, aes(x=factor(nsnp),y=base_time + time_diff,col=factor(zthr))) +
@@ -146,7 +298,7 @@ ggplot(mtime, aes(x=nsnp,y=y,ymin=ymin,ymax=ymax,col=factor(zthr))) +
   geom_pointrange() +
   geom_path(aes(group=factor(zthr))) +
   facet_wrap(~ncvscen) +
-  labs(x="Number of SNPs in region",y="Time (seconds)") +
+  scale_x_continuous(breaks=c(1000,2000,3000),labs(x="Number of SNPs in region",y="Time (seconds)")) +
   scale_colour_seaborn("|Z| threshold for trimming") +
   theme(legend.position="bottom") +
   background_grid(major="y")

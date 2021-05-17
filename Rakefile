@@ -1,10 +1,15 @@
 require 'rake'
 require '/home/cew54/slurmer/Qsub.rb'
 require 'rake/clean'
+require 'fileutils'
 require 'date'
 require_relative 'dirs.rb' # defines DIR, ROOTDIR, REFDIR
 
 ## CLEAN
+
+# "clean temporary files"
+# task :clean do
+# end
 
 CLEAN.include('machine.*')
 CLEAN.include('slurm-*.out')
@@ -47,15 +52,19 @@ BLOCKS=Blocks.new()
 
 # rake console
 task :console do
-  require 'pry'
-  ARGV.clear
-  Pry.start
+    require 'pry'
+    ARGV.clear
+    Pry.start
 end
 
 namespace "coloc" do
 
+    task :run do
+        qrun=true
+        qstr += " -j simcoloc -g 50 "
+    end
     # NSIMDATA=100 # how many data files
-    NSIMCOLOC=1000 # how many coloc runs
+    NSIMCOLOC=2000 # how many coloc runs
     NPERSIM=10 # how many simulations per output file
     # desc "sim coloc data"
     # task :data do
@@ -72,29 +81,35 @@ namespace "coloc" do
     #     end
     # end
 
-    # A is causal for trait 1, B is causal for trait 2.  SCENARIOS indicates whhether
-    # A is shared, B is shared
+    # A is causal for trait 1, B is causal for trait 2.
+    # +1 adds the other snp, -1 switches to the other snp
+    # SCENARIOS indicates whhether A is shared, B is shared
     SCENARIOS=[
-      [1,-1], # A,A shared
-      [0,0], # A,B, no sharing
-      [1,0], # A,AB one shared
-      [1,1], # AB,AB both shared
+        [1,-1], # A,A shared
+        [0,0], # A,B, no sharing
+        [1,0], # A,AB one shared
+        [1,1], # AB,AB both shared
     ]
-    desc "run coloc on sim data"
-    task :run do
-        qrun=true
-        qstr += " -j simcoloc -g 50 "
-        SCENARIOS.each do |s|
-            # how many data files?
-            d="#{SIMCOLOC}/sim_#{s[0]}_#{s[1]}"
-            FileUtils.mkdir_p(d) # does nothing if d exists
-            simfiles=Dir.glob("*", base: d)
-            i=0
-            while i < ((NSIMCOLOC/NPERSIM - simfiles.length)).ceil do
-                # qfile_.puts("Rscript ./sim_coloc.R --args Ashared=#{s[0]} Bshared=#{s[1]} nsim=#{NPERSIM} ncopies=1")
-                qfile_.puts("Rscript ./sim_coloc.R --args Ashared=#{s[0]} Bshared=#{s[1]} nsim=#{NPERSIM} ncopies=2")
-                qfile_.puts("Rscript ./sim_coloc.R --args Ashared=#{s[0]} Bshared=#{s[1]} nsim=#{NPERSIM} ncopies=3")
-                i=i+1
+
+    SCENARIOS.each do |s|
+        # how many data files?
+        [1,2,3].each do |ncopies|
+            d="#{SIMCOLOC}/sim_ncopies_#{ncopies}_A_#{s[0]}_B_#{s[1]}"
+
+            desc "clean earlier output files"
+            task :clean do
+                FileUtils.rm_r d if File.exist?(d);
+            end
+
+            desc "run coloc on sim data"
+            task :run do
+                FileUtils.mkdir_p(d) # does nothing if d exists
+                simfiles=Dir.glob("*", base: d)
+                i=0
+                while i < ((NSIMCOLOC/NPERSIM - simfiles.length)).ceil do
+                    qfile_.puts("Rscript ./sim_coloc.R --args Ashared=#{s[0]} Bshared=#{s[1]} nsim=#{NPERSIM} ncopies=#{ncopies}")
+                    i=i+1
+                end
             end
         end
     end
@@ -107,27 +122,38 @@ namespace "coloc" do
     end
 end
 
-
 namespace :approx do
-  NAPPROX=100
+    NAPPROX=200
 
-  desc "run approximation simulations"
-  task :run do
-    qrun=true
-    qstr += " -j simcoloc -g 10 "
-    [1,2,3].each do |n|
-      d="#{SIMCOLOC}/approx_#{n}"
-      FileUtils.mkdir_p(d) # does nothing if d exists
-      simfiles=Dir.glob("*", base: d)
-      i=0
-      # while i < (NAPPROX*2 - simfiles.length) do
-      while i < (NAPPROX) do
-        qfile_.puts("Rscript ./sim_susie.R --args Bshared=1 nsim=10 ncopies=#{n}")
-        # qfile_.puts("Rscript ./sim_susie.R --args Bshared=0 nsim=10 ncopies=#{n}")
-        i=i+1
-      end
+    desc "run approximation simulations"
+    task :run do
+        qrun=true
+        qstr += " -j simsusie "
     end
-  end
+
+    [1,2,3].each do |n|
+        d="#{SIMCOLOC}/approx_#{n}"
+
+        desc "clean earlier output files"
+        task :clean do
+            FileUtils.rm_r d if File.exist?(d);
+        end
+
+        desc "run approximation simulations"
+        task :run do
+            FileUtils.mkdir_p(d) # does nothing if d exists
+            simfiles=Dir.glob("*", base: d)
+            i=0
+            while i < (NAPPROX - simfiles.length) do
+            # while i < (NAPPROX) do
+                qfile_.puts("Rscript ./sim_susie.R --args Bshared=1 nsim=10 ncopies=#{n}")
+                qfile_.puts("Rscript ./sim_susie.R --args Bshared=0 nsim=10 ncopies=#{n}")
+                i=i+1
+            end
+        end
+    end
+
+# BaseQTL is a Bayesian method to map molecular QTL affecting allele-specific expression even when no genotypes are available. It is well suited to discover eQTLs hidden in a wealth of RNA-seq data to unravel molecular mechanisms underpinning disease.
 
     desc "summarise susie sims to date"
     task :summary do

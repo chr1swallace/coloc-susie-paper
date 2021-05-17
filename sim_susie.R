@@ -2,9 +2,14 @@
 source("dirs.rb")
 library(randomFunctions)
 library(magrittr)
-afile=list.files(SIMDATA,full=TRUE) %>% sample(.,1)
+ok=FALSE
+while(!ok) {
+  afile=list.files(SIMDATA,full=TRUE) %>% sample(.,1)
+  (load(afile)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
+  ok=length(dB$beta) && length(dAB$beta) && length(dA$beta)
+}
 print(afile)
-args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=10,ncopies=1),
+args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=10,ncopies=2),
              numeric=c("Ashared","Bshared","nsim","ncopies"))
 (load(args$file)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
 
@@ -33,30 +38,46 @@ sample_from_D=function(D) {
           s=0.5)
 }
 
-zthr=c(0,0,0.5,1,1.5)
-run_susie=function(D,i,zthr=c(0,0,0.5,1,1.5)) {
+getpip=function(x) {
+  colSums(x$alpha[ x$sets$cs_index,,drop=FALSE])
+}
+
+zthr=c(0,0.5,1,1.5)
+  D= if(args$Bshared==1) { message("dAB"); dAB } else { message("dA"); dA }
+  D %<>% sample_from_D()
+
+run_susie=function(D,i,zthr=c(0,0.5,1,1.5)) {
   times <- ret <- result <- vector("list",length(zthr))
-  for(i in seq_along(zthr))
-    times[[i]]=system.time(ret[[i]] <- runsusie(D,trimz=zthr[i]))[["elapsed"]]
-  a=head(ret[[1]]$pip,-1)
-  anull=tail(ret[[1]]$pip,1)
-  for(i in 2:length(ret)) {
-    b=ret[[i]]$pip[names(a)]
-    bnull=tail(ret[[i]]$pip,1)
-    result[[i]]= data.table(base_pnull=anull,
-             pnull_diff=unname(bnull-anull),
+  for(j in seq_along(zthr))
+    times[[j]]=system.time(ret[[j]] <- runsusie(D,trimz=zthr[j]))[["elapsed"]]
+  lapply(ret, function(x) sum(getpip(x)))
+  a=getpip(ret[[1]]) #$alpha[ret[[1]]$sets$cs_index,,drop=FALSE]) #/sum(ret[[1]]$pip)
+  ## a=head(pip,-1)
+  ## anull=tail(pip,1)
+  NOCV=setdiff(names(a),CV)
+  for(j in 1:length(ret)) {
+    b=getpip(ret[[j]])
+    ## b=pip[names(a)]
+    ## bnull=tail(pip,1)
+    result[[j]]= data.table(#base_pnull=anull,
+                                        #pnull_diff=unname(bnull-anull),
+      base_tot=sum(unname(a)),
+                            pcv_diff=sum(unname(b[CV]-a[CV])),
+                            pnocv_diff=sum(unname(b[NOCV]-a[NOCV])),
+                            tot_diff=sum(unname(b - a)),
              base_time=times[[1]],
-             time_diff=times[[i]]-times[[1]],
+             time_diff=times[[j]]-times[[1]],
              maxz=max(abs(D$z)),
              cv.z=D$z[ CV ] %>% signif(., 3) %>% paste(., collapse="/"),
              base_cv.pip=ret[[1]]$pip[ CV ] %>% signif(., 3) %>% paste(., collapse="/"),
-             cv.pip=ret[[i]]$pip[ CV ] %>% signif(., 3) %>% paste(., collapse="/"),
+             cv.pip=ret[[j]]$pip[ CV ] %>% signif(., 3) %>% paste(., collapse="/"),
              same_top=which.max(a) == which.max(b),
-             max_abs_diff=max(abs(a-b)),
-             mse=mean((a-b)^2),
+             max_pos_diff.noncv=max(b[NOCV]-a[NOCV]),
+             min_neg_diff.noncv=min((b[NOCV]-a[NOCV])),
+             mse.noncv=mean((a[NOCV]-b[NOCV])^2),
+             bias.noncv=mean(b[NOCV]-a[NOCV]),
              pipcr=cor(a,b),
-             zthr=zthr[i])
-
+             zthr=zthr[j])
   }
   rbindlist(result[2:(length(zthr))])
   ## c(time.trim=time.trim["elapsed"],
@@ -71,10 +92,12 @@ run_susie=function(D,i,zthr=c(0,0,0.5,1,1.5)) {
 
 library(Matrix)
 run_sim=function(i) {
-  ## D=lapply(1:args$ncopies, function(i) {
+
   D= if(args$Bshared==1) { message("dAB"); dAB } else { message("dA"); dA }
   D %<>% sample_from_D()
-  ## })
+  ## tmp=run_susie(D,i)
+  ## tmp
+
   if(args$ncopies>1) {
     D=list(snp=c(D$snp, colnames(Z0)),
            beta=c(D$beta, Z0[i,] * rep(sqrt(D$varbeta),args$ncopies-1)),
