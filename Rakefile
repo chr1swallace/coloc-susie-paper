@@ -4,6 +4,11 @@ require 'rake/clean'
 require 'fileutils'
 require 'date'
 require_relative 'dirs.rb' # defines DIR, ROOTDIR, REFDIR
+require 'yaml'
+require 'zlib'
+require 'multiple_files_gzip_reader'
+require 'tempfile'
+
 
 ## CLEAN
 
@@ -20,6 +25,9 @@ QFILE="rake-#{DateTime.now}.sh"
 qfile_=open(QFILE,'w')
 qrun=false
 qstr=" -r " # q options
+
+## deal with ARGV if present
+ARGV.each { |a| task a.to_sym do ; end }
 
 at_exit do
     qfile_.close
@@ -93,7 +101,7 @@ namespace "coloc" do
 
     SCENARIOS.each do |s|
         # how many data files?
-        [1,2,3].each do |ncopies|
+        [1,3].each do |ncopies|
             d="#{SIMCOLOC}/sim_ncopies_#{ncopies}_A_#{s[0]}_B_#{s[1]}"
 
             desc "clean earlier output files"
@@ -145,7 +153,7 @@ namespace :approx do
             simfiles=Dir.glob("*", base: d)
             i=0
             while i < (NAPPROX - simfiles.length) do
-            # while i < (NAPPROX) do
+                # while i < (NAPPROX) do
                 qfile_.puts("Rscript ./sim_susie.R --args Bshared=1 nsim=10 ncopies=#{n}")
                 qfile_.puts("Rscript ./sim_susie.R --args Bshared=0 nsim=10 ncopies=#{n}")
                 i=i+1
@@ -153,7 +161,7 @@ namespace :approx do
         end
     end
 
-# BaseQTL is a Bayesian method to map molecular QTL affecting allele-specific expression even when no genotypes are available. It is well suited to discover eQTLs hidden in a wealth of RNA-seq data to unravel molecular mechanisms underpinning disease.
+    # BaseQTL is a Bayesian method to map molecular QTL affecting allele-specific expression even when no genotypes are available. It is well suited to discover eQTLs hidden in a wealth of RNA-seq data to unravel molecular mechanisms underpinning disease.
 
     desc "summarise susie sims to date"
     task :summary do

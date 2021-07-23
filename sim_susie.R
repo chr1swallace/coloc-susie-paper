@@ -2,6 +2,7 @@
 source("dirs.rb")
 library(randomFunctions)
 library(magrittr)
+library(data.table)
 ok=FALSE
 while(!ok) {
   afile=list.files(SIMDATA,full=TRUE) %>% sample(.,1)
@@ -9,7 +10,7 @@ while(!ok) {
   ok=length(dB$beta) && length(dAB$beta) && length(dA$beta)
 }
 print(afile)
-args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=10,ncopies=2),
+args=getArgs(defaults=list(file=afile,Ashared=1,Bshared=-1,nsim=10,ncopies=3),
              numeric=c("Ashared","Bshared","nsim","ncopies"))
 (load(args$file)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
 
@@ -25,7 +26,8 @@ if(args$ncopies>1) {
   LD=bdiag(LD,LD0) %>% as.matrix()
 }
 
-devtools::load_all("~/RP/coloc")
+## devtools::load_all("~/RP/coloc")
+library(coloc)
 
 ## sample coloc data
 sample_from_D=function(D) {
@@ -50,13 +52,23 @@ run_susie=function(D,i,zthr=c(0,0.5,1,1.5)) {
   times <- ret <- result <- vector("list",length(zthr))
   for(j in seq_along(zthr))
     times[[j]]=system.time(ret[[j]] <- runsusie(D,trimz=zthr[j]))[["elapsed"]]
-  lapply(ret, function(x) sum(getpip(x)))
+  sapply(ret, function(x) sum(getpip(x)))
   a=getpip(ret[[1]]) #$alpha[ret[[1]]$sets$cs_index,,drop=FALSE]) #/sum(ret[[1]]$pip)
   ## a=head(pip,-1)
   ## anull=tail(pip,1)
+  NSETS=lapply(ret, function(x) {
+    if(is.null(x$sets$cs)) { 0 } else { length(x$sets$cs) }
+  })
+  NSETS.in=lapply(ret, function(x) {
+    if(is.null(x$sets$cs)) { 0 } else {
+                                 A=sum(sapply(x$sets$cs,function(set) any(CV %in% names(set))))
+                                 ## A=outer(CV, lapply(x$sets$cs,names), "%in%") # row=cv, col=set
+                                 ## apply(A,2,any) %>% sum() # number of sets with >=1 CV
+                               }
+  })
   NOCV=setdiff(names(a),CV)
   for(j in 1:length(ret)) {
-    b=getpip(ret[[j]])
+    b=getpip(ret[[j]])[names(a)]
     ## b=pip[names(a)]
     ## bnull=tail(pip,1)
     result[[j]]= data.table(#base_pnull=anull,
@@ -65,7 +77,7 @@ run_susie=function(D,i,zthr=c(0,0.5,1,1.5)) {
                             pcv_diff=sum(unname(b[CV]-a[CV])),
                             pnocv_diff=sum(unname(b[NOCV]-a[NOCV])),
                             tot_diff=sum(unname(b - a)),
-             base_time=times[[1]],
+      base_time=times[[1]],
              time_diff=times[[j]]-times[[1]],
              maxz=max(abs(D$z)),
              cv.z=D$z[ CV ] %>% signif(., 3) %>% paste(., collapse="/"),
@@ -75,11 +87,18 @@ run_susie=function(D,i,zthr=c(0,0.5,1,1.5)) {
              max_pos_diff.noncv=max(b[NOCV]-a[NOCV]),
              min_neg_diff.noncv=min((b[NOCV]-a[NOCV])),
              mse.noncv=mean((a[NOCV]-b[NOCV])^2),
-             bias.noncv=mean(b[NOCV]-a[NOCV]),
-             pipcr=cor(a,b),
-             zthr=zthr[j])
+                          pipcr=cor(a,b),
+      bias.noncv=mean(b[NOCV]-a[NOCV]))
   }
-  rbindlist(result[2:(length(zthr))])
+  result=rbindlist(result[2:(length(zthr))])
+  cbind(result,
+               data.table(base_nsets=NSETS[[1]],
+                          base_nsets.in=NSETS.in[[1]],
+                          nsets=unlist(NSETS[-1]),
+                          nsets.in=unlist(NSETS.in[-1]),
+                          zthr=zthr[-1])
+               )
+
   ## c(time.trim=time.trim["elapsed"],
   ##   time.notrim=time.notrim["elapsed"],
   ##   nsnps=length(D$snp),

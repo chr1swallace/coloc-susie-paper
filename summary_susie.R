@@ -23,7 +23,6 @@ library(data.table)
 proc_file=function(f,d) {
   (load(f))
   result[,scenario:=basename(d)][,index:=paste(f,1:.N,sep="_")]
-  result
 }
 
 
@@ -32,6 +31,8 @@ DATA=vector("list",length(dirs))
 names(DATA)=basename(dirs)
 for(d in dirs) {
   files=list.files(d,full=TRUE) %>% grep("summary",.,value=TRUE,invert=TRUE)
+  ## if(length(files)>200)
+  ##   files=files[1:200]
   f=files[1]
   message(basename(d),"\tfiles found: ",length(files))
   if(!length(files))
@@ -50,7 +51,10 @@ with(results, table(scenario))
 results[,nsnp:=as.numeric(sub("approx_","",scenario))]
 head(results)
 
-
+results[,base_nsets.out:=base_nsets-base_nsets.in]
+results[,nsets.out:=nsets-nsets.in]
+results[,diff_nsets.in:=nsets.in-base_nsets.in]
+results[,diff_nsets.out:=nsets.out-base_nsets.out]
 results[,pip.cv1:=sub("/.*","",cv.pip) %>% as.numeric()]
 results[ncv==2,pip.cv2:=sub(".*/","",cv.pip) %>% as.numeric()]
 results[,base_pip.cv1:=sub("/.*","",base_cv.pip) %>% as.numeric()]
@@ -63,10 +67,111 @@ results[nsnp < 1000, nsnp:=1000 * nsnp]
 results[,ncvscen:=ifelse(ncv==1, "single CV", "two CV")]
 results[,snpscen:=paste(nsnp," SNPs")]
 
-ggplot(results,aes(x=base_tot+tot_diff)) + geom_histogram() + facet_wrap(~zthr)
+library(cowplot)
+theme_set(theme_cowplot(font_size=10))
+results[,sets_same:=nsets.in==base_nsets.in & nsets.out==nsets.out]
 
-ggplot(results,aes(x=base_tot,y=tot_diff)) + geom_hex() + geom_smooth() +
-  facet_wrap(~zthr)
+with(results, table(snpscen,ncvscen,zthr))
+
+ggplot(results, aes(x=pipcr,fill=factor(zthr),col=factor(zthr))) +
+  geom_histogram(position="dodge",binwidth=0.05) +
+  scale_fill_seaborn("|Z| threshold for trimming") +
+  scale_colour_seaborn("|Z| threshold for trimming") +
+  background_grid(major="y") +
+  labs(x="Correlation between PIP before and after trimming",y="Count") +
+  theme(legend.position="bottom") +
+  ## scale_y_log10() +
+  ## scale_colour_seaborn("|Z| threshold for trimming") +
+  facet_grid(snpscen ~ ncvscen)
+ggsave("~/Projects/coloc-susie/figure-pipcr.png",height=4,width=6)
+
+## alternative time
+mtime=results[,.(y=median(base_time+time_diff),ymax=quantile(base_time+time_diff,.75),ymin=quantile(base_time+time_diff,.25)),
+              by=c("zthr","nsnp","ncvscen")]
+mtime=rbind(mtime, results[zthr==0.5,.(y=median(base_time), ymax=quantile(base_time,.75),ymin=quantile(base_time,.25),zthr=0),
+                           by=c("nsnp","ncvscen")])
+ggplot(mtime, aes(x=nsnp,y=y,ymin=ymin,ymax=ymax,col=factor(zthr))) +
+  geom_pointrange() +
+  geom_path(aes(group=factor(zthr))) +
+  facet_wrap(~ncvscen) +
+  scale_x_continuous(breaks=c(1000,2000,3000)) +
+  labs(x="Number of SNPs in region",y="Time (seconds)") +
+  scale_colour_seaborn("|Z| threshold for trimming") +
+  theme(legend.position="bottom") +
+  background_grid(major="y")
+ggsave("~/Projects/coloc-susie/figure-time.png",height=4,width=6)
+
+################################################################################
+
+## all abandonned below here
+
+m=rbind(results[,.(base_pip=base_pip.cv1,pip=pip.cv1,zthr,pipcr,snpscen,
+                   ncvscen=ifelse(ncvscen=="single CV", ncvscen, paste(ncvscen, "(CV 1)")))],
+                results[ncvscen!="single CV",.(base_pip=base_pip.cv2,pip=pip.cv2,zthr,pipcr,snpscen,
+                   ncvscen=ifelse(ncvscen=="single CV", ncvscen, paste(ncvscen, "(CV 2)")))])
+
+with(m, table(snpscen,ncvscen,zthr))
+
+
+ggplot(m, aes(x=base_pip,y=pip)) +
+  geom_abline() +
+  geom_point(alpha=0.1) +
+  facet_grid(factor(zthr) ~ ncvscen + snpscen)
+
+## ggplot(m, aes(x=base_pip,y=pip)) +
+##   geom_abline() +
+##   geom_hex() +
+##   facet_grid(factor(zthr) ~ ncvscen + snpscen)
+
+## ggplot(results, aes(x=base_pip.cv1,y=pip.cv1)) + #,col=factor(nsets.in==base_nsets.in & nsets.out==nsets.out)
+##   geom_abline(intercept=0,slope=1) +
+##   geom_point(alpha=0.1) +
+##   facet_grid(factor(zthr) ~ ncvscen + snpscen)
+
+## ggplot(results, aes(x=base_pip.cv2,y=pip.cv2)) + #,col=factor(nsets.in==base_nsets.in & nsets.out==nsets.out)
+##   geom_abline(intercept=0,slope=1) +
+##   geom_point(alpha=0.1) +
+##   facet_grid(factor(zthr) ~ ncvscen + snpscen)
+
+## ggplot(results, aes(x=max_pos_diff.noncv,y=min_neg_diff.noncv)) +#,col=factor(nsets.in==base_nsets.in & nsets.out==nsets.out))) +
+##   geom_abline() +
+##   geom_point(alpha=0.1) +
+##   facet_grid(factor(zthr) + factor(sets_same) ~ ncvscen + snpscen)
+
+## results[,.(mse1=mean((pip.cv1-base_pip.cv1)^2),
+##            mse2=mean((pip.cv2-base_pip.cv2)^2)), by=c("zthr","ncvscen","snpscen")]
+
+## ggplot(results,aes(x=base_tot+tot_diff)) + geom_histogram() + facet_wrap(~zthr)
+
+## ggplot(results,aes(x=base_tot,y=tot_diff)) + geom_hex() + geom_smooth() +
+##   facet_wrap(~zthr)
+
+## fill barchart
+## library(cowplot)
+## library(seaborn)
+## m=melt(results, measure.vars=c("diff_nsets.in","diff_nsets.out"))
+## head(m)
+## ggplot(m, aes(x=value,fill=as.factor(zthr))) +
+##   geom_bar(position="dodge") +
+##   scale_fill_seaborn("|Z| threshold for trimming") +
+##   scale_colour_seaborn("|Z| threshold for trimming") +
+##   background_grid(major="y") +
+##   facet_grid(ncvscen + variable ~ snpscen)
+
+## ggplot(m, aes(x=value,fill=variable)) +
+##   geom_bar(position="dodge") +
+##   scale_fill_seaborn("|Z| threshold for trimming") +
+##   scale_colour_seaborn("|Z| threshold for trimming") +
+##   background_grid(major="y") +
+##   facet_grid(ncvscen + factor(zthr) ~ snpscen)
+
+## ggplot(results, aes(x=pip.cv1-base_pip.cv1,fill=factor(zthr))) +
+##   geom_histogram(position="dodge",aes(y=..density..)) +
+##   scale_fill_seaborn("|Z| threshold for trimming") +
+##   scale_colour_seaborn("|Z| threshold for trimming") +
+##   background_grid(major="y") +
+##   facet_grid(ncvscen + factor(diff_nsets.in==0) ~ snpscen)
+
 
 ## bivariate plot
 library(cowplot)
@@ -85,6 +190,7 @@ p=ggplot(results[zthr>0], aes(x=pcv_diff,y=pnocv_diff)) + #,col=pnocv_diff)) +
   scale_fill_viridis() +
   facet_grid(ncvscen + zthr ~ snpscen)
 p
+
 
 ## https://www.r-bloggers.com/2014/05/finding-the-midpoint-when-creating-intervals/
 midpoints <- function(x){
@@ -290,23 +396,6 @@ ggplot(results[zthr>0][order(dens)], aes(x=pnull_diff,y=pcv_diff,col=dens)) +
 ##   geom_boxplot() +
 ##   facet_wrap(~ncv,labeller=label_both) +
 ##   background_grid(major="y")
-
-## alternative time
-mtime=results[,.(y=median(base_time+time_diff),ymax=quantile(base_time+time_diff,.75),ymin=quantile(base_time+time_diff,.25)),
-              by=c("zthr","nsnp","ncvscen")]
-ggplot(mtime, aes(x=nsnp,y=y,ymin=ymin,ymax=ymax,col=factor(zthr))) +
-  geom_pointrange() +
-  geom_path(aes(group=factor(zthr))) +
-  facet_wrap(~ncvscen) +
-  scale_x_continuous(breaks=c(1000,2000,3000),labs(x="Number of SNPs in region",y="Time (seconds)")) +
-  scale_colour_seaborn("|Z| threshold for trimming") +
-  theme(legend.position="bottom") +
-  background_grid(major="y")
-ggsave("~/Projects/coloc-susie/figure-time.png",height=4,width=6)
-
-################################################################################
-
-## all abandonned below here
 
 
 library(ggridges)

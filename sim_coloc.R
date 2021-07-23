@@ -58,7 +58,13 @@ sample_from_D=function(D,i) {
 }
 
 run_single=function(D1,D2,i) {
+  ## single fm
+  sfm1 <- finemap.abf(D1)
+  pp1=sfm1$SNP.PP[ match(CV, sfm1$snp) ]
+  sfm2 <- finemap.abf(D2)
+  pp2=sfm2$SNP.PP[ match(CV, sfm2$snp) ]
   ret <- coloc:::coloc.abf(D1, D2, p12=5e-6)
+  pp=ret$results$SNP.PP.H4[ match(CV, ret$results$snp) ]
   if(is.null(ret$summary))
     return(NULL)
   ret=ret$summary %<>% as.list %>% as.data.frame(., stringsAsFactors=FALSE)
@@ -67,21 +73,59 @@ run_single=function(D1,D2,i) {
                               idx1=1,
                               idx2=1,
                               method="single",
+                              trait1.pp.A=pp1[[1]],
+                              trait1.pp.B=pp1[[2]],
+                              trait2.pp.A=pp2[[1]],
+                              trait2.pp.B=pp2[[2]],
+                              coloc.pp.A=pp[[1]],
+                              coloc.pp.B=pp[[2]],
                               run=i))
 }
 
 run_susie=function(D1,D2,zthr,i) {
-  ret <- coloc:::coloc.susie(D1, D2, p12=5e-6,susie.args=list(trimz=zthr),nref=503)
+  S1=runsusie(D1,trimz=zthr)
+  S2=runsusie(D2,trimz=zthr)
+  ret <- coloc:::coloc.susie(S1, S2, p12=5e-6)
+  if(is.null(ret$summary))  # no credsets found
+    return(NULL)
+  pp=ret$results[ match(CV, ret$results$snp), grep("SNP.PP.H4",names(ret$results)), with=FALSE]
+  pp %<>% as.matrix() %>% t()
+  pp1=S1$alpha[ret$summary$idx1,,drop=FALSE]
+  pp2=S2$alpha[ret$summary$idx2,,drop=FALSE]
   cbind(ret$summary, data.table(method=paste("susie",zthr,sep="_"),
-                              run=i))
+                                    run=i,
+                                    trait1.pp.A=pp1[ ,CV[1] ],
+                                    trait1.pp.B=pp1[ ,CV[2] ],
+                                    trait2.pp.A=pp2[ ,CV[1] ],
+                                    trait2.pp.B=pp2[ ,CV[2] ],
+                                    coloc.pp.A=pp[,1],
+                                    coloc.pp.B=pp[,2]
+                                    ))
 }
 
 run_condmask=function(D1,D2,i,method=c("mask","cond"),mode=c("iterative","allbutone")) {
   method=match.arg(method)
   mode=match.arg(mode)
-  ret <- coloc:::coloc.signals(D1, D2, p12=5e-6,method=method,mode=mode)$summary
-  ret %>% cbind(., data.table(method=paste(method,mode,sep="_"),
-                              run=i))
+  fm1=finemap.signals(D1,method=method)
+  X1 <- D1[ intersect(names(D1), c("N","sdY","type","s")) ]
+  cond1 <- est_all_cond(D1,fm1,mode=mode)
+  pp1=lapply(cond1,function(x) finemap.abf(c(x,X1)))
+  fm2=finemap.signals(D2,method=method)
+  X2 <- D2[ intersect(names(D2), c("N","sdY","type","s")) ]
+  cond2 <- est_all_cond(D2,fm2,mode=mode)
+  pp2=lapply(cond2,function(x) finemap.abf(c(x,X2)))
+  ret <- coloc:::coloc.signals(D1, D2, p12=5e-6,method=method,mode=mode)
+  pp=ret$results[ match(CV, ret$results$snp), grep("SNP.PP.H4",names(ret$results)), with=FALSE] %>%
+    as.matrix() %>% t()
+  cbind(ret$summary,
+        data.table(method=paste(method,mode,sep="_"),
+                   run=i,
+                   trait1.pp.A=sapply(pp1[ret$summary$hit1], function(x) x$SNP.PP[ match(CV[1],x$snp) ]),
+                   trait1.pp.B=sapply(pp1[ret$summary$hit1], function(x) x$SNP.PP[ match(CV[2],x$snp) ]),
+                   trait2.pp.A=sapply(pp2[ret$summary$hit2], function(x) x$SNP.PP[ match(CV[1],x$snp) ]),
+                   trait2.pp.B=sapply(pp2[ret$summary$hit2], function(x) x$SNP.PP[ match(CV[2],x$snp) ]),
+                   coloc.pp.A=pp[,1],
+                   coloc.pp.B=pp[,2]))
 }
 
 
@@ -104,12 +148,12 @@ run_sim=function(i) {
 
   RESULT=list(run_single(D1,D2,i),
               run_susie(D1,D2,zthr=0,i),
-              run_susie(D1,D2,zthr=0.5,i),
-              run_susie(D1,D2,zthr=1,i),
-              run_susie(D1,D2,zthr=1.5,i),
-              run_condmask(D1,D2,i,"mask"),
+              ## run_susie(D1,D2,zthr=0.5,i),
+              ## run_susie(D1,D2,zthr=1,i),
+              ## run_susie(D1,D2,zthr=1.5,i),
+              ## run_condmask(D1,D2,i,"mask"),
               run_condmask(D1,D2,i,"cond"),
-              run_condmask(D1,D2,i,"mask",mode="allbutone"),
+              ## run_condmask(D1,D2,i,"mask",mode="allbutone"),
               run_condmask(D1,D2,i,"cond",mode="allbutone"))
 
   result=rbindlist(RESULT,fill=TRUE)

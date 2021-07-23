@@ -88,7 +88,7 @@ run_single=function(D1,D2,i) {
 }
 
 run_susie=function(D1,D2,zthr,i) {
-  ret <- coloc:::coloc.susie(D1, D2, p12=5e-6,susie.args=list(trimz=zthr),nref=503)
+  ret <- coloc:::coloc.susie(D1, D2, p12=5e-6,susie.args=list(trimz=zthr))
   cbind(ret$summary, data.table(method=paste("susie",zthr,sep="_"),
                               run=i))
 }
@@ -135,7 +135,7 @@ run_sim=function(i) {
   result
 }
 
-devtools::load_all("~/RP/coloc")
+library(coloc)
 library(mvtnorm)
   library(Matrix)
   args=getArgs(defaults=list(file="",Ashared=1,Bshared=0,nsim=1,ncopies=1),
@@ -190,9 +190,11 @@ head(asumm <- summ[min4>0.8 & method=="cond_allbutone"])
 
 k=3
 afile=isumm$afile[k]
+message(afile)
 seed=isumm$seed[k]
   (load(afile)) # this contains: dA=datasets with A causal, dB=datasets with B causal, dAB=datasets with AB causal
-  set.seed(seed)
+## dim(LD)
+set.seed(seed)
 result=run_sim(1)
 print(result[,.(method,PP.H3.abf,PP.H4.abf,rB.2)])
 
@@ -229,16 +231,22 @@ method="cond"
 LD[names(fm2),CV]
 # first is B, second is A
 
+## save dataset
+Readme=list(dataset1="dataset 1, in standard coloc format",
+            dataset2="dataset 2, in standard coloc format",
+            CV="identifiers of causal variants A and B in order")
+save(dataset1,dataset2,CV,Readme,file="dataset-iterative-example.RData")
+
 highA=rownames(LD)[ LD[,CV[1]] > 0.8 ] %>% sub("chr.*-","",.) %>% as.numeric()
 highB=rownames(LD)[ LD[,CV[2]] > 0.8 ] %>% sub("chr.*-","",.) %>% as.numeric()
 wA=which( LD[,CV[1]] > 0.8 )
 wB=which( LD[,CV[2]] > 0.8 )
 
 ## method cond, mode iterative
-cond1 <- est_all_cond(dataset1,fm1,mode="iterative")
+cond1 <- coloc:::est_all_cond(dataset1,fm1,mode="iterative")
 X1 <- dataset1[ intersect(names(dataset1), c("N","sdY","type","s","position")) ]
-cond2 <- est_all_cond(dataset2,fm2,mode="iterative")
-cond3 <- est_all_cond(dataset2,fm2,mode="allbutone")
+cond2 <- coloc:::est_all_cond(dataset2,fm2,mode="iterative")
+cond3 <- coloc:::est_all_cond(dataset2,fm2,mode="allbutone")
 X2 <- dataset2[ intersect(names(dataset2), c("N","sdY","type","s","position")) ]
 ## cond1 <- est_all_cond(dataset1,fm1,mode="allbutone")
 ## X1 <- dataset1[ intersect(names(dataset1), c("N","sdY","type","s","position")) ]
@@ -261,6 +269,11 @@ colpoints=function(y,w,col) {
   points(D1$position[w],y[w], col=col, pch=16)
 }
 
+label_plot=function() {
+  mtext(letters[iplot],side=3,outer=FALSE,adj=-0.1,font=2)
+  iplot <<- iplot + 1
+}
+
 
 
 png("figure-example-iterative.png",width=8,height=6,units="in",pointsize=10,res=300)
@@ -270,14 +283,14 @@ par(mfcol=c(3,2),mar=c(4,3,2,1),mgp=c(2,1,0),bty="L",oma=c(0,0.2,0,0))
 plot_dataset(D1); title(main="trait 1, observed data");
 colpoints(y=-log10(pnorm(-abs(D1$z))*2), w=wA, col=colA)
 annot("A")
-label_plot()
+## label_plot()
 
 plot_dataset(D2); title(main="trait 2, observed data")
 colpoints(y=-log10(pnorm(-abs(D2$z))*2), w=wA, col=colA)
 colpoints(y=-log10(pnorm(-abs(D2$z))*2), w=wB, col=colB)
 annot()
 legend("topright",legend=paste0("coloc with trait 1: PP H4=",signif(result[method=="cond_iterative"]$PP.H4.abf[1],2)))
-label_plot()
+## label_plot()
 
 X=X2; C=cond2[[2]]
 plot_dataset(c(C,X)); title(main="trait 2, conditioned on proxy for B")
@@ -285,7 +298,7 @@ colpoints(y=-log10(pnorm(-abs(C$z))*2), w=wA, col=colA)
 colpoints(y=-log10(pnorm(-abs(C$z))*2), w=wB, col=colB)
 annot()
 legend("topright",legend=paste0("coloc with trait 1: PP H4=",signif(result[method=="cond_iterative"]$PP.H4.abf[2],2)))
-label_plot()
+## label_plot()
 
 ## dev.off()
 
@@ -293,16 +306,16 @@ label_plot()
 
 ## par(mfrow=c(3,1))
 y=S1$lbf_variable[S1$sets$cs_index[1],]
-plot_dataset(D1,alty=y,ylab="log BF",show_legend=FALSE,main="trait 1, SuSiE signal 1"); annot()
+plot_dataset(D1,alty=log10(exp(y)),ylab="log10 BF",show_legend=FALSE,main="trait 1, SuSiE signal 1"); annot()
 colpoints(y,wA,colA)
-label_plot()
+## label_plot()
 for(k in 1:2) {
   y=S2$lbf_variable[S2$sets$cs_index[k],]
-  plot_dataset(D2,alty=y,ylab="log BF",show_legend=FALSE,main=paste("trait 2, SuSiE signal",k)); annot()
+  plot_dataset(D2,alty=log10(exp(y)),ylab="log10 BF",show_legend=FALSE,main=paste("trait 2, SuSiE signal",k)); annot()
   colpoints(y,wA,colA)
   colpoints(y,wB,colB)
   legend("topright",legend=paste0("coloc with trait 1: PP H4=",signif(result[method=="susie_0"]$PP.H4.abf[k],2)))
-label_plot()
+## label_plot()
 }
 
 dev.off()
@@ -341,11 +354,6 @@ dev.off()
 
 ################################################################################
 
-label_plot=function() {
-  mtext(letters[iplot],side=3,outer=FALSE,adj=-0.1,font=2)
-  iplot <<- iplot + 1
-}
-
 k=1
 afile=asumm$afile[k]
 seed=asumm$seed[k]
@@ -373,6 +381,7 @@ plot_dataset(D1,S1); abline(v=poscv[1],col=colA)
 plot_dataset(D2,S2); abline(v=poscv,col=c(colA,colB))
 
 LD[CV,CV]^2
+length(D1$snp)
 
 ## step through coloc_signals, extract BF and plot
 dataset1=D1
@@ -385,6 +394,11 @@ method="cond"
                            method=method,
                            maxhits=2,r2thr=0.01,pthr=1e-4)
 
+Readme=list(dataset1="dataset 1, in standard coloc format",
+            dataset2="dataset 2, in standard coloc format",
+            CV="identifiers of causal variants A and B in order")
+save(dataset1,dataset2,CV,Readme,file="dataset-abo-example.RData")
+
 LD[names(fm2),CV] # first is B, second is A
 
 highA=rownames(LD)[ LD[,CV[1]] > 0.8 ] %>% sub("chr.*-","",.) %>% as.numeric()
@@ -393,10 +407,10 @@ wA=which( LD[,CV[1]] > 0.8 )
 wB=which( LD[,CV[2]] > 0.8 )
 
 ## method cond, mode ABO
-cond1 <- est_all_cond(dataset1,fm1,mode="iterative")
+cond1 <- coloc:::est_all_cond(dataset1,fm1,mode="iterative")
 X1 <- dataset1[ intersect(names(dataset1), c("N","sdY","type","s","position")) ]
-cond2 <- est_all_cond(dataset2,fm2,mode="iterative")
-cond3 <- est_all_cond(dataset2,fm2,mode="allbutone")
+cond2 <- coloc:::est_all_cond(dataset2,fm2,mode="iterative")
+cond3 <- coloc:::est_all_cond(dataset2,fm2,mode="allbutone")
 X2 <- dataset2[ intersect(names(dataset2), c("N","sdY","type","s","position")) ]
 ## cond1 <- est_all_cond(dataset1,fm1,mode="allbutone")
 ## X1 <- dataset1[ intersect(names(dataset1), c("N","sdY","type","s","position")) ]
