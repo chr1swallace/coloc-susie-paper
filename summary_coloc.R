@@ -52,13 +52,13 @@ for(d in dirs) {
   ## scores[is.nan(spec.B),spec.B:=0]
   ## scores[is.nan(spec.A),spec.A:=0]
 }
-save(DATA,file="~/coloc-susie-11-42.RData")
+save(DATA,file="~/coloc-susie.RData")
 
 ################################################################################
 
 ## preparation
 
-(load(file="~/coloc-susie-11-42.RData"))
+(load(file="~/coloc-susie.RData"))
 
 RSQ_THR=0.5
 NPER_THR=10000 # because every dataset has at least 9660
@@ -292,8 +292,8 @@ topline=plot_grid(plotlist=list(NULL,topplots[[1]],NULL,topplots[[2]],NULL,toppl
                   ## labs=c("","a","","b","","c","","d",""),
                   rel_heights=c(1,w,1,w,1,w,1,w,3))
 ## plot_grid(topline,bottomline,bottom_n,ncol=1,rel_heights=c(.2,.8,.5))
-both=plot_grid(topline,bottomline + theme(strip.background=element_blank(),strip.text=element_text(face="bold")),rel_widths=c(.2,.8),nrow=1)
-both2=plot_grid(topline,bottomline2 + theme(strip.background=element_blank(),strip.text=element_text(face="bold")),rel_widths=c(.2,.8),nrow=1)
+both=plot_grid(topline,bottomline + theme(strip.background=element_blank(),strip.text.x=element_text(face="bold"),strip.text.y=element_blank()),rel_widths=c(.2,.8),nrow=1)
+both2=plot_grid(topline,bottomline2 + theme(strip.background=element_blank(),strip.text.x=element_text(face="bold"),strip.text.y=element_blank()),rel_widths=c(.2,.8),nrow=1)
 ## topline
 
 library(grid)
